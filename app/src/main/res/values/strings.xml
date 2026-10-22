@@ -7,6 +7,15 @@
     <string name="applied">Applied. Termux reloads the style.</string>
     <string name="default_color">Termux default</string>
     <string name="default_font">System monospace</string>
+    <string name="import_color">+  Import color scheme</string>
+    <string name="import_font">+  Import font</string>
+    <string name="import_failed">Could not import the file.</string>
+    <string name="import_not_properties">Pick a .properties color scheme file.</string>
+    <string name="import_not_font">Pick a .ttf or .otf font file.</string>
+    <string name="import_invalid_colors">A color scheme needs a background and a foreground color, and color0 to color15 must be hex colors like #rrggbb.</string>
+    <string name="import_invalid_font">Android cannot load this font file.</string>
+    <string name="delete_title">Delete %1$s?</string>
+    <string name="delete_action">Delete</string>
     <string name="preview_label">Preview · %1$s</string>
     <string name="typography_label">Typography · %1$s</string>
     <string name="font_row_sample">Aa Bb 0123 -&gt; != {}</string>

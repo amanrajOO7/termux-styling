@@ -28,4 +28,5 @@ all currently installed plugins. Check https://github.com/termux/termux-app#Inst
 1. When inside Termux, long press anywhere on the terminal.
 2. Select `More...` in the resulting dialog.
 3. Select `Style` in the next dialog.
-4. Click either `CHOOSE COLOR` or `CHOOSE FONT` depending on what you want to customize.
+4. Choose a color scheme or a font in the `Colors` or `Fonts` tab. The preview above the list shows the terminal colors and the typography of the font before you apply it. Tap a color scheme's bar or a font's sample to preview it.
+5. Tap `Apply` to write the changes. Termux reloads the style right away.

@@ -1,7 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Termux:Styling</string>
-    <string name="color_prompt">Choose color</string>
-    <string name="font_prompt">Choose font</string>
+    <string name="colors_tab">Colors</string>
+    <string name="fonts_tab">Fonts</string>
+    <string name="apply">Apply</string>
+    <string name="applied">Applied. Termux reloads the style.</string>
+    <string name="default_color">Termux default</string>
+    <string name="default_font">System monospace</string>
+    <string name="preview_label">Preview · %1$s</string>
+    <string name="typography_label">Typography · %1$s</string>
+    <string name="font_row_sample">Aa Bb 0123 -&gt; != {}</string>
+    <string name="typography_sample">Aa Bb Cc Dd Ee Ff Gg 0123456789
+-&gt; =&gt; != == &lt;= &gt;= {} [] () ; : ~ _
+The quick brown fox jumps over the lazy dog</string>
     <string name="writing_failed">Failed to install file:\n\n</string>
 </resources>

@@ -1,7 +1,6 @@
 <resources xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <style name="AppTheme" parent="@android:style/Theme.Material.Light.Dialog.NoActionBar.MinWidth">
-        <item name="android:colorAccent">#212121</item>
-    </style>
+    <!-- Material 3 Expressive with dynamic color, the same theme as the Termux app. -->
+    <style name="AppTheme" parent="Theme.Material3Expressive.DayNight.NoActionBar" />
 
 </resources>

@@ -63,6 +63,10 @@ private val DEFAULT_PALETTE = Palette(
     ),
 )
 
+private const val PREFS_NAME = "style"
+private const val PREF_COLOR = "color"
+private const val PREF_FONT = "font"
+
 fun capitalize(str: String): String {
     var lastWhitespace = true
     val chars = str.toCharArray()
@@ -128,9 +132,11 @@ class TermuxStyleActivity : AppCompatActivity() {
 
         reloadChoices()
 
-        selectedColor = defaultColor()
+        // Start with the color scheme and font that were applied last time, if they still exist.
+        val prefs = stylePrefs()
+        selectedColor = choiceFor(colorChoices, prefs.getString(PREF_COLOR, null)) ?: defaultColor()
         appliedColor = selectedColor
-        selectedFont = defaultFont()
+        selectedFont = choiceFor(fontChoices, prefs.getString(PREF_FONT, null)) ?: defaultFont()
         appliedFont = selectedFont
 
         // Without a layout manager the list shows nothing at all.
@@ -329,10 +335,30 @@ class TermuxStyleActivity : AppCompatActivity() {
         applyButton.isEnabled = selectedColor != appliedColor || selectedFont != appliedFont
     }
 
+    private fun stylePrefs() = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    /** The key saved for a choice. The default has an empty key, so it can't be mixed up with a file. */
+    private fun storeKey(choice: Choice): String = if (choice.fileName == null) "" else cacheKey(choice)
+
+    /** The choice in [choices] saved under [key], or null if there is none, such as after an import was deleted. */
+    private fun choiceFor(choices: List<Choice>, key: String?): Choice? {
+        if (key == null) return null
+        return choices.firstOrNull { !it.isImport && storeKey(it) == key }
+    }
+
+    /** Remember what was applied, so the screen opens with it selected next time. */
+    private fun saveApplied() {
+        stylePrefs().edit()
+            .putString(PREF_COLOR, storeKey(appliedColor))
+            .putString(PREF_FONT, storeKey(appliedFont))
+            .apply()
+    }
+
     /** Write the color scheme and the font that changed, Termux reloads each one when it is written. */
     private fun applySelection() {
         if (selectedColor != appliedColor && copyFile(selectedColor, true)) appliedColor = selectedColor
         if (selectedFont != appliedFont && copyFile(selectedFont, false)) appliedFont = selectedFont
+        saveApplied()
         updateApplyButton()
         if (appliedColor == selectedColor && appliedFont == selectedFont) {
             Toast.makeText(this, R.string.applied, Toast.LENGTH_SHORT).show()

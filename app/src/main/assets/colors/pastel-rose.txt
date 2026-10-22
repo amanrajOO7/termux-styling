@@ -1,0 +1,2 @@
+Pastel Rose is a pastel color scheme made for Termux:Styling, based on Material 3 tonal colors.
+It is released under the same license as this project.

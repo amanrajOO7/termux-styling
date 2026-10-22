@@ -1,6 +1,7 @@
 package com.termux.styling
 
 import android.content.Context
+import android.content.res.ColorStateList
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
@@ -19,9 +20,9 @@ import android.view.ViewGroup
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.button.MaterialButton
-import com.google.android.material.button.MaterialButtonToggleGroup
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.color.DynamicColors
 import com.google.android.material.color.MaterialColors
@@ -82,7 +83,8 @@ class TermuxStyleActivity : AppCompatActivity() {
     private lateinit var previewBar: ColorBarView
     private lateinit var typographyLabel: TextView
     private lateinit var typographyText: TextView
-    private lateinit var modeGroup: MaterialButtonToggleGroup
+    private lateinit var colorsButton: MaterialButton
+    private lateinit var fontsButton: MaterialButton
     private lateinit var applyButton: MaterialButton
     private lateinit var optionsList: RecyclerView
     private val adapter = OptionAdapter()
@@ -99,7 +101,8 @@ class TermuxStyleActivity : AppCompatActivity() {
         previewBar = findViewById(R.id.preview_bar)
         typographyLabel = findViewById(R.id.typography_label)
         typographyText = findViewById(R.id.typography_text)
-        modeGroup = findViewById(R.id.mode_group)
+        colorsButton = findViewById(R.id.mode_colors)
+        fontsButton = findViewById(R.id.mode_fonts)
         applyButton = findViewById(R.id.apply_button)
         optionsList = findViewById(R.id.options_list)
 
@@ -113,16 +116,39 @@ class TermuxStyleActivity : AppCompatActivity() {
         selectedFont = fontChoices[0]
         appliedFont = selectedFont
 
+        // Without a layout manager the list shows nothing at all.
+        optionsList.layoutManager = LinearLayoutManager(this)
         optionsList.adapter = adapter
-        adapter.submit(colorChoices)
+        showMode(colors = true)
 
-        modeGroup.addOnButtonCheckedListener { _, checkedId, isChecked ->
-            if (!isChecked) return@addOnButtonCheckedListener
-            adapter.submit(if (checkedId == R.id.mode_colors) colorChoices else fontChoices)
-        }
-
+        colorsButton.setOnClickListener { showMode(colors = true) }
+        fontsButton.setOnClickListener { showMode(colors = false) }
         applyButton.setOnClickListener { applySelection() }
         updatePreview()
+    }
+
+    /** Show the color schemes or the fonts in the list, and mark the button of that row. */
+    private fun showMode(colors: Boolean) {
+        adapter.submit(if (colors) colorChoices else fontChoices)
+        styleModeButton(colorsButton, colors)
+        styleModeButton(fontsButton, !colors)
+    }
+
+    private fun styleModeButton(button: MaterialButton, selected: Boolean) {
+        if (selected) {
+            val container = MaterialColors.getColor(button, com.google.android.material.R.attr.colorSecondaryContainer, Color.DKGRAY)
+            val onContainer = MaterialColors.getColor(button, com.google.android.material.R.attr.colorOnSecondaryContainer, Color.WHITE)
+            button.backgroundTintList = ColorStateList.valueOf(container)
+            button.setTextColor(onContainer)
+            button.strokeWidth = 0
+        } else {
+            val onSurface = MaterialColors.getColor(button, com.google.android.material.R.attr.colorOnSurface, Color.WHITE)
+            val outline = MaterialColors.getColor(button, com.google.android.material.R.attr.colorOnSurfaceVariant, Color.GRAY)
+            button.backgroundTintList = ColorStateList.valueOf(Color.TRANSPARENT)
+            button.setTextColor(onSurface)
+            button.strokeColor = ColorStateList.valueOf(outline)
+            button.strokeWidth = (resources.displayMetrics.density).toInt().coerceAtLeast(1)
+        }
     }
 
     private fun listAssets(folder: String, extension: String, isColor: Boolean): List<Choice> {

@@ -100,33 +100,24 @@
         </LinearLayout>
     </androidx.core.widget.NestedScrollView>
 
-    <com.google.android.material.button.MaterialButtonToggleGroup
-        android:id="@+id/mode_group"
+    <!-- Colors and Fonts, one per row. The list below shows the choices of the selected one. -->
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/mode_colors"
+        style="?attr/materialButtonOutlinedStyle"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginHorizontal="16dp"
         android:layout_marginTop="8dp"
-        app:selectionRequired="true"
-        app:singleSelection="true">
+        android:text="@string/colors_tab" />
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/mode_colors"
-            style="?attr/materialButtonOutlinedStyle"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:checked="true"
-            android:text="@string/colors_tab" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/mode_fonts"
-            style="?attr/materialButtonOutlinedStyle"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/fonts_tab" />
-
-    </com.google.android.material.button.MaterialButtonToggleGroup>
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/mode_fonts"
+        style="?attr/materialButtonOutlinedStyle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginHorizontal="16dp"
+        android:layout_marginTop="8dp"
+        android:text="@string/fonts_tab" />
 
     <!-- The choices: a color bar for each color scheme, a sample in the font for each font. -->
     <androidx.recyclerview.widget.RecyclerView

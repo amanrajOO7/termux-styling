@@ -5,7 +5,7 @@ getNerdFont() {
 	local font_name="${1}"
 	local font_file="${2}"
 
-	local tag="v3.0.2"
+	local tag="v3.5.1"
 	local font_filename_remote="$font_name"
 	if [ "$font_filename_remote" != "Go-Mono" ]; then
 	  font_filename_remote="${font_filename_remote//-/}"
@@ -20,26 +20,26 @@ getNerdFont() {
 }
 
 declare -A fonts=( # [font-name]='path/to/file.ttf'
-	[Anonymous-Pro]='Regular/AnonymiceProNerdFontMono-Regular.ttf'
-	[DejaVu-Sans-Mono]='Regular/DejaVuSansMNerdFontMono-Regular.ttf'
-	[Fantasque-Sans-Mono]='Regular/FantasqueSansMNerdFontMono-Regular.ttf'
-	[Fira-Code]='Regular/FiraCodeNerdFontMono-Regular.ttf'
-	[Fira-Mono]='Regular/FiraMonoNerdFontMono-Regular.otf'
-	[Go-Mono]='Regular/GoMonoNerdFontMono-Regular.ttf'
-	[Hack]='Regular/HackNerdFontMono-Regular.ttf'
-	[Hermit]='Regular/HurmitNerdFontMono-Regular.otf'
+	[Anonymous-Pro]='AnonymiceProNerdFontMono-Regular.ttf'
+	[DejaVu-Sans-Mono]='DejaVuSansMNerdFontMono-Regular.ttf'
+	[Fantasque-Sans-Mono]='FantasqueSansMNerdFontMono-Regular.ttf'
+	[Fira-Code]='FiraCodeNerdFontMono-Regular.ttf'
+	[Fira-Mono]='FiraMonoNerdFontMono-Regular.otf'
+	[Go-Mono]='GoMonoNerdFontMono-Regular.ttf'
+	[Hack]='HackNerdFontMono-Regular.ttf'
+	[Hermit]='HurmitNerdFontMono-Regular.otf'
 	[Inconsolata]='InconsolataNerdFontMono-Regular.ttf'
-	[Iosevka]='Regular/IosevkaNerdFontMono-Regular.ttf'
+	[Iosevka]='IosevkaNerdFontMono-Regular.ttf'
 	[Liberation-Mono]='LiterationMonoNerdFontMono-Regular.ttf'
-	[Meslo]='L/Regular/MesloLGLNerdFontMono-Regular.ttf'
-	[Monofur]='Regular/MonofurNerdFontMono-Regular.ttf'
-	[Monoid]='Regular/MonoidNerdFontMono-Regular.ttf'
+	[Meslo]='L/MesloLGLNerdFontMono-Regular.ttf'
+	[Monofur]='MonofurNerdFontMono-Regular.ttf'
+	[Monoid]='MonoidNerdFontMono-Regular.ttf'
 	[OpenDyslexic]='Mono-Regular/OpenDyslexicMNerdFontMono-Regular.otf'
-	[Roboto-Mono]='Regular/RobotoMonoNerdFontMono-Regular.ttf'
-	[Source-Code-Pro]='Regular/SauceCodeProNerdFontMono-Regular.ttf'
-	[Terminus]='Regular/TerminessNerdFontMono-Regular.ttf'
-	[Ubuntu-Mono]='Regular/UbuntuMonoNerdFontMono-Regular.ttf'
-	[Victor-Mono]='Regular/VictorMonoNerdFontMono-Regular.ttf'
+	[Roboto-Mono]='RobotoMonoNerdFontMono-Regular.ttf'
+	[Source-Code-Pro]='SauceCodeProNerdFontMono-Regular.ttf'
+	[Terminus]='TerminessNerdFontMono-Regular.ttf'
+	[Ubuntu-Mono]='UbuntuMonoNerdFontMono-Regular.ttf'
+	[Victor-Mono]='VictorMonoNerdFontMono-Regular.ttf'
 )
 
 # Starting log message

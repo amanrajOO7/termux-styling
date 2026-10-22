@@ -12,10 +12,26 @@
     <string name="import_failed">Could not import the file.</string>
     <string name="import_not_properties">Pick a .properties color scheme file.</string>
     <string name="import_not_font">Pick a .ttf or .otf font file.</string>
-    <string name="import_invalid_colors">A color scheme needs a background and a foreground color, and color0 to color15 must be hex colors like #rrggbb.</string>
+    <string name="import_invalid_colors">This file is not a readable color scheme.</string>
     <string name="import_invalid_font">Android cannot load this font file.</string>
     <string name="delete_title">Delete %1$s?</string>
     <string name="delete_action">Delete</string>
+    <string name="import_missing_key">%1$s is missing. A color scheme needs a background and a foreground color.</string>
+    <string name="import_bad_color">%1$s is not a hex color: %2$s. Use the form #rrggbb.</string>
+    <string name="import_low_contrast">The text and background contrast is only %1$s:1, so the text may be hard to read.</string>
+    <string name="import_replace">A file named %1$s is already imported. It will be replaced.</string>
+    <string name="import_confirm_title">Import color scheme?</string>
+    <string name="import_anyway">Import anyway</string>
+    <string name="menu_license">License</string>
+    <string name="menu_export">Save as file</string>
+    <string name="menu_delete">Delete</string>
+    <string name="export_done">Saved.</string>
+    <string name="export_failed">Could not save the file.</string>
+    <string name="badge_applied">✓ Applied</string>
+    <string name="search_hint">Search</string>
+    <string name="filter_all">All</string>
+    <string name="filter_light">Light</string>
+    <string name="filter_dark">Dark</string>
     <string name="preview_label">Preview · %1$s</string>
     <string name="typography_label">Typography · %1$s</string>
     <string name="font_row_sample">Aa Bb 0123 -&gt; != {}</string>

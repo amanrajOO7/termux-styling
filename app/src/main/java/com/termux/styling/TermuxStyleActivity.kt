@@ -182,6 +182,8 @@ class TermuxStyleActivity : AppCompatActivity() {
         appliedColor = selectedColor
         selectedFont = choiceFor(fontChoices, prefs.getString(PREF_FONT, null)) ?: defaultFont()
         appliedFont = selectedFont
+        // Versions before the titles were saved only stored the keys, so write the titles once.
+        if (!prefs.contains(PREF_COLOR_TITLE) || !prefs.contains(PREF_FONT_TITLE)) saveApplied()
 
         // Without a layout manager the list shows nothing at all.
         optionsList.layoutManager = LinearLayoutManager(this)

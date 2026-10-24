@@ -46,6 +46,7 @@ import java.io.IOException
 import java.io.InputStream
 import java.nio.charset.StandardCharsets
 import java.util.Properties
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 
 /**
@@ -106,16 +107,17 @@ class TermuxStyleActivity : AppCompatActivity() {
 
     private val colorChoices = ArrayList<Choice>()
     private val fontChoices = ArrayList<Choice>()
-    private val paletteCache = HashMap<String, Palette>()
-    private val typefaceCache = object : LruCache<String, Typeface>(24) {}
-    private val isDarkCache = HashMap<String, Boolean>()
+    private val paletteCache = ConcurrentHashMap<String, Palette>()
+    private val typefaceCache = object : LruCache<String, Typeface>(8) {}
+    private val isDarkCache = ConcurrentHashMap<String, Boolean>()
     private val ioExecutor = Executors.newSingleThreadExecutor()
+    private var filterVersion = 0
 
     /** What the user picked in the preview, and what was last written to Termux. */
     private var selectedColor = Choice(null, "", true)
     private var selectedFont = Choice(null, "", false)
-    private var appliedColor = selectedColor
-    private var appliedFont = selectedFont
+    @Volatile private var appliedColor = selectedColor
+    @Volatile private var appliedFont = selectedFont
 
     /** Whether the list shows color schemes or fonts, and the search text and brightness filter for colors. */
     private var colorsMode = true
@@ -165,9 +167,9 @@ class TermuxStyleActivity : AppCompatActivity() {
 
         val root: View = findViewById(R.id.root)
         ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.ime())
             view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
-            WindowInsetsCompat.CONSUMED
+            insets
         }
 
         val insetsController = WindowCompat.getInsetsController(window, window.decorView)
@@ -189,25 +191,6 @@ class TermuxStyleActivity : AppCompatActivity() {
         filterGroup = findViewById(R.id.filter_group)
         applyButton = findViewById(R.id.apply_button)
         optionsList = findViewById(R.id.options_list)
-
-        reloadChoices()
-
-        // Start with the color scheme and font that were applied last time, checking ~/.termux/style.properties
-        // first, then falling back to preferences.
-        val styleProps = loadStyleProperties()
-        val prefs = stylePrefs()
-        val savedColorKey = styleProps?.getProperty(PREF_COLOR)?.trim() ?: prefs.getString(PREF_COLOR, null)
-        val savedColorTitle = styleProps?.getProperty(PREF_COLOR_TITLE)?.trim() ?: prefs.getString(PREF_COLOR_TITLE, null)
-        val savedFontKey = styleProps?.getProperty(PREF_FONT)?.trim() ?: prefs.getString(PREF_FONT, null)
-        val savedFontTitle = styleProps?.getProperty(PREF_FONT_TITLE)?.trim() ?: prefs.getString(PREF_FONT_TITLE, null)
-
-        selectedColor = choiceFor(colorChoices, savedColorKey, savedColorTitle) ?: defaultColor()
-        appliedColor = selectedColor
-        selectedFont = choiceFor(fontChoices, savedFontKey, savedFontTitle) ?: defaultFont()
-        appliedFont = selectedFont
-        // Ensure style.properties and preference titles are created if missing.
-        val hasStyleProperties = styleProps?.containsKey(PREF_COLOR_TITLE) == true && styleProps.containsKey(PREF_FONT_TITLE)
-        if (!hasStyleProperties || !prefs.contains(PREF_COLOR_TITLE) || !prefs.contains(PREF_FONT_TITLE)) saveApplied()
 
         // Without a layout manager the list shows nothing at all.
         optionsList.layoutManager = LinearLayoutManager(this)
@@ -239,7 +222,7 @@ class TermuxStyleActivity : AppCompatActivity() {
             applyFilters()
         }
 
-        updatePreview()
+        initChoicesAsync()
     }
 
     override fun onDestroy() {
@@ -250,7 +233,9 @@ class TermuxStyleActivity : AppCompatActivity() {
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
         if (level >= TRIM_MEMORY_MODERATE) {
-            typefaceCache.evictAll()
+            synchronized(typefaceCache) {
+                typefaceCache.evictAll()
+            }
             paletteCache.clear()
             isDarkCache.clear()
         }
@@ -260,19 +245,78 @@ class TermuxStyleActivity : AppCompatActivity() {
 
     private fun defaultFont() = Choice(null, getString(R.string.default_font), false)
 
-    /** Rebuild both lists: the import row, the imported files, then the built-in choices. */
-    private fun reloadChoices() {
-        colorChoices.clear()
-        colorChoices.add(Choice(null, getString(R.string.import_color), true, isImport = true))
-        colorChoices.addAll(listImported(true))
-        colorChoices.add(defaultColor())
-        colorChoices.addAll(listAssets("colors", ".properties", true))
+    /** Build the list: the import row, the imported files, default choice, then built-in choices. */
+    private fun loadChoices(isColor: Boolean): List<Choice> {
+        val result = ArrayList<Choice>()
+        if (isColor) {
+            result.add(Choice(null, getString(R.string.import_color), true, isImport = true))
+            result.addAll(listImported(true))
+            result.add(defaultColor())
+            result.addAll(listAssets("colors", ".properties", true))
+        } else {
+            result.add(Choice(null, getString(R.string.import_font), false, isImport = true))
+            result.addAll(listImported(false))
+            result.add(defaultFont())
+            result.addAll(listAssets("fonts", ".ttf", false))
+        }
+        return result
+    }
 
-        fontChoices.clear()
-        fontChoices.add(Choice(null, getString(R.string.import_font), false, isImport = true))
-        fontChoices.addAll(listImported(false))
-        fontChoices.add(defaultFont())
-        fontChoices.addAll(listAssets("fonts", ".ttf", false))
+    private fun initChoicesAsync() {
+        ioExecutor.execute {
+            val colors = loadChoices(true)
+            val fonts = loadChoices(false)
+
+            // Start with the color scheme and font that were applied last time, checking ~/.termux/style.properties
+            // first, then falling back to preferences.
+            val styleProps = loadStyleProperties()
+            val prefs = stylePrefs()
+            val savedColorKey = styleProps?.getProperty(PREF_COLOR)?.trim() ?: prefs.getString(PREF_COLOR, null)
+            val savedColorTitle = styleProps?.getProperty(PREF_COLOR_TITLE)?.trim() ?: prefs.getString(PREF_COLOR_TITLE, null)
+            val savedFontKey = styleProps?.getProperty(PREF_FONT)?.trim() ?: prefs.getString(PREF_FONT, null)
+            val savedFontTitle = styleProps?.getProperty(PREF_FONT_TITLE)?.trim() ?: prefs.getString(PREF_FONT_TITLE, null)
+
+            val initialColor = choiceFor(colors, savedColorKey, savedColorTitle) ?: defaultColor()
+            val initialFont = choiceFor(fonts, savedFontKey, savedFontTitle) ?: defaultFont()
+
+            appliedColor = initialColor
+            appliedFont = initialFont
+
+            // Ensure style.properties and preference titles are created if missing.
+            val hasStyleProperties = styleProps?.containsKey(PREF_COLOR_TITLE) == true && styleProps.containsKey(PREF_FONT_TITLE)
+            if (!hasStyleProperties || !prefs.contains(PREF_COLOR_TITLE) || !prefs.contains(PREF_FONT_TITLE)) {
+                saveApplied()
+            }
+
+            loadPalette(initialColor)
+            loadTypeface(initialFont)
+
+            runOnUiThread {
+                colorChoices.clear()
+                colorChoices.addAll(colors)
+                fontChoices.clear()
+                fontChoices.addAll(fonts)
+
+                selectedColor = initialColor
+                selectedFont = initialFont
+
+                showMode(colorsMode)
+                updatePreview()
+            }
+
+            preloadPalettes(colors)
+        }
+    }
+
+    private fun preloadPalettes(choices: List<Choice>) {
+        ioExecutor.execute {
+            for (choice in choices) {
+                if (choice.fileName != null && !choice.isImport && choice.isColor) {
+                    val palette = loadPalette(choice)
+                    isDarkChoice(choice)
+                }
+            }
+        }
     }
 
     /** Show the color schemes or the fonts in the list, and mark the button of that row. */
@@ -290,18 +334,36 @@ class TermuxStyleActivity : AppCompatActivity() {
 
     /** Show the list for the current mode, narrowed by the search text and, for color schemes, by brightness. */
     private fun applyFilters() {
-        val source = if (colorsMode) colorChoices else fontChoices
+        val currentVersion = ++filterVersion
+        val source = ArrayList(if (colorsMode) colorChoices else fontChoices)
         val search = query.trim()
-        val visible = source.filter { choice ->
-            if (choice.isImport) return@filter true
-            if (search.isNotEmpty() && !choice.title.contains(search, ignoreCase = true)) return@filter false
-            if (choice.isColor && brightness != Brightness.ALL) {
-                val dark = isDarkChoice(choice)
-                return@filter (brightness == Brightness.DARK) == dark
+        val currentBrightness = brightness
+        val isColor = colorsMode
+
+        if (!isColor || currentBrightness == Brightness.ALL) {
+            val visible = source.filter { choice ->
+                if (choice.isImport) return@filter true
+                if (search.isNotEmpty() && !choice.title.contains(search, ignoreCase = true)) return@filter false
+                true
             }
-            true
+            adapter.submit(visible)
+            return
         }
-        adapter.submit(visible)
+
+        // Color schemes filtered by LIGHT or DARK: offload to ioExecutor to avoid blocking UI thread
+        ioExecutor.execute {
+            val visible = source.filter { choice ->
+                if (choice.isImport) return@filter true
+                if (search.isNotEmpty() && !choice.title.contains(search, ignoreCase = true)) return@filter false
+                val dark = isDarkChoice(choice)
+                (currentBrightness == Brightness.DARK) == dark
+            }
+            runOnUiThread {
+                if (filterVersion == currentVersion) {
+                    adapter.submit(visible)
+                }
+            }
+        }
     }
 
     private fun styleModeButton(button: MaterialButton, selected: Boolean) {
@@ -366,17 +428,22 @@ class TermuxStyleActivity : AppCompatActivity() {
     /** The colors of a color scheme. The default has no file and uses the Termux colors. */
     private fun paletteFor(choice: Choice): Palette {
         if (choice.fileName == null) return DEFAULT_PALETTE
-        return paletteCache.getOrPut(cacheKey(choice)) { loadPalette(choice) }
+        val key = cacheKey(choice)
+        return paletteCache.getOrPut(key) { loadPalette(choice) }
     }
 
     private fun loadPalette(choice: Choice): Palette {
-        return try {
+        val key = cacheKey(choice)
+        paletteCache[key]?.let { return it }
+        val palette = try {
             val props = Properties()
             openChoice(choice).use { props.load(it) }
             paletteFrom(props)
         } catch (e: IOException) {
             DEFAULT_PALETTE
         }
+        paletteCache[key] = palette
+        return palette
     }
 
     /** The palette described by the properties. A color that is missing or invalid uses the Termux default. */
@@ -410,11 +477,22 @@ class TermuxStyleActivity : AppCompatActivity() {
     private fun isDarkChoice(choice: Choice): Boolean =
         isDarkCache.getOrPut(cacheKey(choice)) { isDark(paletteFor(choice)) }
 
-    /** The typeface of a font, the system monospace for the default. */
-    private fun typefaceFor(choice: Choice): Typeface {
+    /** Return cached typeface if available, or Typeface.MONOSPACE for default. Does not do file I/O. */
+    private fun getCachedTypeface(choice: Choice): Typeface? {
         val fileName = choice.fileName ?: return Typeface.MONOSPACE
         val key = cacheKey(choice)
-        typefaceCache.get(key)?.let { return it }
+        return synchronized(typefaceCache) {
+            typefaceCache.get(key)
+        }
+    }
+
+    /** Load the typeface for a font choice, caching the result. */
+    private fun loadTypeface(choice: Choice): Typeface {
+        val fileName = choice.fileName ?: return Typeface.MONOSPACE
+        val key = cacheKey(choice)
+        synchronized(typefaceCache) {
+            typefaceCache.get(key)?.let { return it }
+        }
 
         val typeface = try {
             if (choice.imported) {
@@ -425,27 +503,66 @@ class TermuxStyleActivity : AppCompatActivity() {
         } catch (e: RuntimeException) {
             Typeface.MONOSPACE
         }
-        typefaceCache.put(key, typeface)
+        synchronized(typefaceCache) {
+            typefaceCache.put(key, typeface)
+        }
         return typeface
     }
 
+    /** The typeface of a font, the system monospace for the default. Synchronously returns cached or loads. */
+    private fun typefaceFor(choice: Choice): Typeface = loadTypeface(choice)
+
     private fun updatePreview() {
-        val palette = paletteFor(selectedColor)
-        val typeface = typefaceFor(selectedFont)
+        val targetColor = selectedColor
+        val targetFont = selectedFont
         val onSurface = MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurface, Color.WHITE)
 
-        previewCard.setCardBackgroundColor(palette.background)
-        previewLabel.text = getString(R.string.preview_label, selectedColor.title)
-        previewText.typeface = typeface
-        previewText.text = terminalSample(palette)
-        previewBar.setColors(palette.ansi)
+        val cachedPalette = if (targetColor.fileName == null) DEFAULT_PALETTE else paletteCache[cacheKey(targetColor)]
+        if (cachedPalette != null) {
+            applyPreviewPalette(cachedPalette, targetColor)
+        } else {
+            applyPreviewPalette(DEFAULT_PALETTE, targetColor)
+            ioExecutor.execute {
+                val palette = loadPalette(targetColor)
+                runOnUiThread {
+                    if (selectedColor == targetColor) {
+                        applyPreviewPalette(palette, targetColor)
+                    }
+                }
+            }
+        }
 
-        typographyLabel.text = getString(R.string.typography_label, selectedFont.title)
+        val cachedTypeface = getCachedTypeface(targetFont)
+        if (cachedTypeface != null) {
+            applyPreviewTypeface(cachedTypeface, targetFont, onSurface)
+        } else {
+            applyPreviewTypeface(Typeface.MONOSPACE, targetFont, onSurface)
+            ioExecutor.execute {
+                val tf = loadTypeface(targetFont)
+                runOnUiThread {
+                    if (selectedFont == targetFont) {
+                        applyPreviewTypeface(tf, targetFont, onSurface)
+                    }
+                }
+            }
+        }
+
+        updateApplyButton()
+    }
+
+    private fun applyPreviewPalette(palette: Palette, choice: Choice) {
+        previewCard.setCardBackgroundColor(palette.background)
+        previewLabel.text = getString(R.string.preview_label, choice.title)
+        previewText.text = terminalSample(palette)
+        previewBar.setColors(palette.ansi, choice.title)
+    }
+
+    private fun applyPreviewTypeface(typeface: Typeface, choice: Choice, onSurface: Int) {
+        previewText.typeface = typeface
+        typographyLabel.text = getString(R.string.typography_label, choice.title)
         typographyText.typeface = typeface
         typographyText.text = getString(R.string.typography_sample)
         typographyText.setTextColor(onSurface)
-
-        updateApplyButton()
     }
 
     /** A small sample of terminal output, colored with the palette. */
@@ -690,7 +807,9 @@ class TermuxStyleActivity : AppCompatActivity() {
         } catch (e: Exception) {
             Log.w("termux", "Failed to write $outputFile", e)
             val message = resources.getString(R.string.writing_failed) + e.message
-            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+            runOnUiThread {
+                Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+            }
             return false
         }
     }
@@ -792,7 +911,16 @@ class TermuxStyleActivity : AppCompatActivity() {
         }
 
         ioExecutor.execute {
-            val temp = File(cacheDir, "import-temp")
+            val temp = try {
+                File.createTempFile("import-", if (colors) ".properties" else ".font", cacheDir)
+            } catch (e: IOException) {
+                Log.w("termux", "Failed to create temp file for $name", e)
+                runOnUiThread {
+                    Toast.makeText(this, R.string.import_failed, Toast.LENGTH_LONG).show()
+                }
+                return@execute
+            }
+
             try {
                 val input = contentResolver.openInputStream(uri) ?: throw IOException("Cannot open the file")
                 input.use { source -> temp.outputStream().use { source.copyTo(it) } }
@@ -841,14 +969,25 @@ class TermuxStyleActivity : AppCompatActivity() {
             ioExecutor.execute {
                 try {
                     temp.copyTo(target, overwrite = true)
-                    runOnUiThread {
-                        paletteCache.clear()
+                    paletteCache.clear()
+                    synchronized(typefaceCache) {
                         typefaceCache.evictAll()
-                        isDarkCache.clear()
+                    }
+                    isDarkCache.clear()
 
-                        val choice = Choice(target.name, displayName(target.name), colors, imported = true)
-                        reloadChoices()
-                        if (colors) selectedColor = choice else selectedFont = choice
+                    val newChoices = loadChoices(colors)
+                    val choice = Choice(target.name, displayName(target.name), colors, imported = true)
+
+                    runOnUiThread {
+                        if (colors) {
+                            colorChoices.clear()
+                            colorChoices.addAll(newChoices)
+                            selectedColor = choice
+                        } else {
+                            fontChoices.clear()
+                            fontChoices.addAll(newChoices)
+                            selectedFont = choice
+                        }
                         showMode(colors)
                         updatePreview()
                     }
@@ -884,18 +1023,43 @@ class TermuxStyleActivity : AppCompatActivity() {
         MaterialAlertDialogBuilder(this)
             .setTitle(getString(R.string.delete_title, choice.title))
             .setPositiveButton(R.string.delete_action) { _, _ ->
-                choice.fileName?.let { File(importDir(choice.isColor), it).delete() }
-                if (choice.isColor) {
-                    if (selectedColor == choice) selectedColor = defaultColor()
-                } else if (selectedFont == choice) {
-                    selectedFont = defaultFont()
+                ioExecutor.execute {
+                    choice.fileName?.let { File(importDir(choice.isColor), it).delete() }
+
+                    val wasApplied = if (choice.isColor) appliedColor == choice else appliedFont == choice
+                    if (wasApplied) {
+                        if (choice.isColor) {
+                            appliedColor = defaultColor()
+                            copyFile(defaultColor(), true)
+                        } else {
+                            appliedFont = defaultFont()
+                            copyFile(defaultFont(), false)
+                        }
+                        saveApplied()
+                    }
+
+                    paletteCache.remove(cacheKey(choice))
+                    synchronized(typefaceCache) {
+                        typefaceCache.remove(cacheKey(choice))
+                    }
+                    isDarkCache.remove(cacheKey(choice))
+
+                    val newChoices = loadChoices(choice.isColor)
+
+                    runOnUiThread {
+                        if (choice.isColor) {
+                            colorChoices.clear()
+                            colorChoices.addAll(newChoices)
+                            if (selectedColor == choice) selectedColor = defaultColor()
+                        } else {
+                            fontChoices.clear()
+                            fontChoices.addAll(newChoices)
+                            if (selectedFont == choice) selectedFont = defaultFont()
+                        }
+                        showMode(choice.isColor)
+                        updatePreview()
+                    }
                 }
-                paletteCache.clear()
-                typefaceCache.evictAll()
-                isDarkCache.clear()
-                reloadChoices()
-                showMode(choice.isColor)
-                updatePreview()
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
@@ -914,7 +1078,7 @@ class TermuxStyleActivity : AppCompatActivity() {
                 override fun areItemsTheSame(oldPos: Int, newPos: Int): Boolean {
                     val a = oldItems[oldPos]
                     val b = newItems[newPos]
-                    return a.isImport == b.isImport && a.fileName == b.fileName && a.isColor == b.isColor
+                    return a.isImport == b.isImport && a.imported == b.imported && a.fileName == b.fileName && a.isColor == b.isColor
                 }
                 override fun areContentsTheSame(oldPos: Int, newPos: Int): Boolean {
                     val a = oldItems[oldPos]
@@ -953,12 +1117,23 @@ class TermuxStyleActivity : AppCompatActivity() {
             holder.badge.visibility = if (applied) View.VISIBLE else View.GONE
             if (choice.isColor) {
                 // Each color scheme shows its own background, with its palette below the name.
-                val palette = paletteFor(choice)
-                holder.card.setCardBackgroundColor(palette.background)
-                holder.title.setTextColor(palette.foreground)
-                holder.title.typeface = Typeface.DEFAULT
+                val key = cacheKey(choice)
+                val cachedPalette = if (choice.fileName == null) DEFAULT_PALETTE else paletteCache[key]
+                if (cachedPalette != null) {
+                    bindPalette(holder, cachedPalette, choice)
+                } else {
+                    bindPalette(holder, DEFAULT_PALETTE, choice)
+                    val currentPos = holder.bindingAdapterPosition
+                    ioExecutor.execute {
+                        val palette = loadPalette(choice)
+                        runOnUiThread {
+                            if (holder.bindingAdapterPosition == currentPos && items.getOrNull(currentPos) == choice) {
+                                bindPalette(holder, palette, choice)
+                            }
+                        }
+                    }
+                }
                 holder.bar.visibility = View.VISIBLE
-                holder.bar.setColors(palette.ansi)
                 holder.sample.visibility = View.GONE
             } else {
                 // Each font shows a sample written in that font.
@@ -967,9 +1142,24 @@ class TermuxStyleActivity : AppCompatActivity() {
                 holder.title.typeface = Typeface.DEFAULT
                 holder.bar.visibility = View.GONE
                 holder.sample.visibility = View.VISIBLE
-                holder.sample.typeface = typefaceFor(choice)
                 holder.sample.text = getString(R.string.font_row_sample)
                 holder.sample.setTextColor(onSurface)
+
+                val cachedTypeface = getCachedTypeface(choice)
+                if (cachedTypeface != null) {
+                    holder.sample.typeface = cachedTypeface
+                } else {
+                    holder.sample.typeface = Typeface.MONOSPACE
+                    val currentPos = holder.bindingAdapterPosition
+                    ioExecutor.execute {
+                        val tf = loadTypeface(choice)
+                        runOnUiThread {
+                            if (holder.bindingAdapterPosition == currentPos && items.getOrNull(currentPos) == choice) {
+                                holder.sample.typeface = tf
+                            }
+                        }
+                    }
+                }
             }
 
             holder.card.strokeColor = onSurface
@@ -990,6 +1180,13 @@ class TermuxStyleActivity : AppCompatActivity() {
                 showMenu(choice)
                 true
             }
+        }
+
+        private fun bindPalette(holder: Holder, palette: Palette, choice: Choice) {
+            holder.card.setCardBackgroundColor(palette.background)
+            holder.title.setTextColor(palette.foreground)
+            holder.title.typeface = Typeface.DEFAULT
+            holder.bar.setColors(palette.ansi, choice.title)
         }
 
         /** The first row of each list: tapping it opens the file picker for that list. */

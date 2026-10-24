@@ -30,8 +30,14 @@ class ColorBarView @JvmOverloads constructor(
         density = context.resources.displayMetrics.density
     }
 
-    /** Show these colors from left to right. */
-    fun setColors(values: IntArray) {
+    /** Show these colors from left to right, optionally updating the accessibility content description with the scheme name. */
+    @JvmOverloads
+    fun setColors(values: IntArray, schemeName: String? = null) {
+        contentDescription = if (schemeName.isNullOrEmpty()) {
+            context.getString(R.string.color_bar_description)
+        } else {
+            context.getString(R.string.color_bar_description_scheme, schemeName)
+        }
         if (colors.contentEquals(values)) return
         colors = values
         invalidate()

@@ -101,24 +101,34 @@
         </LinearLayout>
     </androidx.core.widget.NestedScrollView>
 
-    <!-- Colors and Fonts, one per row. The list below shows the choices of the selected one. -->
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/mode_colors"
-        style="?attr/materialButtonOutlinedStyle"
+    <!-- Colors and Fonts in a horizontal toggle group to save vertical screen space. -->
+    <com.google.android.material.button.MaterialButtonToggleGroup
+        android:id="@+id/mode_toggle_group"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginHorizontal="16dp"
         android:layout_marginTop="8dp"
-        android:text="@string/colors_tab" />
+        app:checkedButton="@id/mode_colors"
+        app:selectionRequired="true"
+        app:singleSelection="true">
 
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/mode_fonts"
-        style="?attr/materialButtonOutlinedStyle"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginHorizontal="16dp"
-        android:layout_marginTop="8dp"
-        android:text="@string/fonts_tab" />
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/mode_colors"
+            style="?attr/materialButtonOutlinedStyle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/colors_tab" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/mode_fonts"
+            style="?attr/materialButtonOutlinedStyle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/fonts_tab" />
+
+    </com.google.android.material.button.MaterialButtonToggleGroup>
 
     <!-- Search by name. The brightness filter only applies to color schemes. -->
     <com.google.android.material.textfield.TextInputLayout
@@ -127,6 +137,7 @@
         android:layout_height="wrap_content"
         android:layout_marginHorizontal="16dp"
         android:layout_marginTop="8dp"
+        app:endIconMode="clear_text"
         android:hint="@string/search_hint">
 
         <com.google.android.material.textfield.TextInputEditText

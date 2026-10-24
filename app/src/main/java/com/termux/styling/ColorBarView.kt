@@ -17,11 +17,22 @@ class ColorBarView @JvmOverloads constructor(
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val rect = RectF()
-    private val density = resources.displayMetrics.density
+    private var density = resources.displayMetrics.density
     private var colors: IntArray = IntArray(0)
+
+    init {
+        importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_YES
+        contentDescription = context.getString(R.string.color_bar_description)
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        density = context.resources.displayMetrics.density
+    }
 
     /** Show these colors from left to right. */
     fun setColors(values: IntArray) {
+        if (colors.contentEquals(values)) return
         colors = values
         invalidate()
     }
@@ -32,7 +43,12 @@ class ColorBarView @JvmOverloads constructor(
         if (count == 0) return
 
         val gap = 3 * density
-        val cellWidth = (width - gap * (count - 1)) / count
+        val totalGaps = gap * (count - 1)
+        if (width <= totalGaps) return
+
+        val cellWidth = (width - totalGaps) / count
+        if (cellWidth <= 0f) return
+
         val radius = 6 * density
         for (i in 0 until count) {
             val left = i * (cellWidth + gap)

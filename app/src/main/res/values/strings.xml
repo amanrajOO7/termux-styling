@@ -39,4 +39,5 @@
 -&gt; =&gt; != == &lt;= &gt;= {} [] () ; : ~ _
 The quick brown fox jumps over the lazy dog</string>
     <string name="writing_failed">Failed to install file:\n\n</string>
+    <string name="color_bar_description">Palette preview</string>
 </resources>

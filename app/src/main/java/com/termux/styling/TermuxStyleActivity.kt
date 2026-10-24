@@ -78,6 +78,7 @@ private const val PREF_COLOR = "color"
 private const val PREF_FONT = "font"
 private const val PREF_COLOR_TITLE = "color_title"
 private const val PREF_FONT_TITLE = "font_title"
+private const val STYLE_PROPERTIES_FILE = "style.properties"
 
 /** Below this contrast between text and background an imported color scheme is hard to read. */
 private const val LOW_CONTRAST = 3.0
@@ -176,14 +177,22 @@ class TermuxStyleActivity : AppCompatActivity() {
 
         reloadChoices()
 
-        // Start with the color scheme and font that were applied last time, if they still exist.
+        // Start with the color scheme and font that were applied last time, checking ~/.termux/style.properties
+        // first, then falling back to preferences.
+        val styleProps = loadStyleProperties()
         val prefs = stylePrefs()
-        selectedColor = choiceFor(colorChoices, prefs.getString(PREF_COLOR, null)) ?: defaultColor()
+        val savedColorKey = styleProps?.getProperty(PREF_COLOR)?.trim() ?: prefs.getString(PREF_COLOR, null)
+        val savedColorTitle = styleProps?.getProperty(PREF_COLOR_TITLE)?.trim() ?: prefs.getString(PREF_COLOR_TITLE, null)
+        val savedFontKey = styleProps?.getProperty(PREF_FONT)?.trim() ?: prefs.getString(PREF_FONT, null)
+        val savedFontTitle = styleProps?.getProperty(PREF_FONT_TITLE)?.trim() ?: prefs.getString(PREF_FONT_TITLE, null)
+
+        selectedColor = choiceFor(colorChoices, savedColorKey, savedColorTitle) ?: defaultColor()
         appliedColor = selectedColor
-        selectedFont = choiceFor(fontChoices, prefs.getString(PREF_FONT, null)) ?: defaultFont()
+        selectedFont = choiceFor(fontChoices, savedFontKey, savedFontTitle) ?: defaultFont()
         appliedFont = selectedFont
-        // Versions before the titles were saved only stored the keys, so write the titles once.
-        if (!prefs.contains(PREF_COLOR_TITLE) || !prefs.contains(PREF_FONT_TITLE)) saveApplied()
+        // Ensure style.properties and preference titles are created if missing.
+        val hasStyleProperties = styleProps?.containsKey(PREF_COLOR_TITLE) == true && styleProps.containsKey(PREF_FONT_TITLE)
+        if (!hasStyleProperties || !prefs.contains(PREF_COLOR_TITLE) || !prefs.contains(PREF_FONT_TITLE)) saveApplied()
 
         // Without a layout manager the list shows nothing at all.
         optionsList.layoutManager = LinearLayoutManager(this)
@@ -445,16 +454,99 @@ class TermuxStyleActivity : AppCompatActivity() {
 
     private fun stylePrefs() = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
+    /** The .termux directory in the Termux home folder, or null if Termux is not installed. */
+    private fun termuxDir(): File? = try {
+        val context = createPackageContext("com.termux", Context.CONTEXT_IGNORE_SECURITY)
+        val homeDir = File(context.filesDir, "home")
+        val dir = File(homeDir, ".termux")
+        if (dir.isDirectory || dir.mkdirs()) dir else null
+    } catch (e: Exception) {
+        null
+    }
+
+    /** The style.properties file in ~/.termux, or null if ~/.termux cannot be accessed. */
+    private fun stylePropertiesFile(): File? {
+        val dir = termuxDir() ?: return null
+        return File(dir, STYLE_PROPERTIES_FILE).canonicalFile
+    }
+
+    /** Read style.properties from ~/.termux, or null if the file does not exist or cannot be read. */
+    private fun loadStyleProperties(): Properties? {
+        val file = stylePropertiesFile() ?: return null
+        if (!file.isFile) return null
+        return try {
+            file.inputStream().use { stream ->
+                Properties().apply { load(stream) }
+            }
+        } catch (e: Exception) {
+            Log.w("termux", "Failed to read $STYLE_PROPERTIES_FILE", e)
+            null
+        }
+    }
+
+    /** Write the applied color scheme and font metadata to ~/.termux/style.properties. */
+    private fun saveStyleProperties() {
+        try {
+            val destinationFile = stylePropertiesFile() ?: return
+            destinationFile.setWritable(true)
+            destinationFile.parentFile?.setWritable(true)
+            destinationFile.parentFile?.setExecutable(true)
+
+            val props = Properties()
+            if (destinationFile.isFile) {
+                try {
+                    destinationFile.inputStream().use { props.load(it) }
+                } catch (e: Exception) {
+                    Log.w("termux", "Failed to load existing $STYLE_PROPERTIES_FILE", e)
+                }
+            }
+            props.setProperty(PREF_COLOR, storeKey(appliedColor))
+            props.setProperty(PREF_COLOR_TITLE, appliedColor.title)
+            props.setProperty(PREF_FONT, storeKey(appliedFont))
+            props.setProperty(PREF_FONT_TITLE, appliedFont.title)
+
+            val atomicFile = AtomicFile(destinationFile)
+            val out = atomicFile.startWrite()
+            try {
+                props.store(out, "Termux style configuration")
+                atomicFile.finishWrite(out)
+            } catch (e: Exception) {
+                atomicFile.failWrite(out)
+                throw e
+            }
+        } catch (e: Exception) {
+            Log.w("termux", "Failed to write $STYLE_PROPERTIES_FILE", e)
+        }
+    }
+
     /** The key saved for a choice. The default has an empty key, so it can't be mixed up with a file. */
     private fun storeKey(choice: Choice): String = if (choice.fileName == null) "" else cacheKey(choice)
 
-    /** The choice in [choices] saved under [key], or null if there is none, such as after an import was deleted. */
-    private fun choiceFor(choices: List<Choice>, key: String?): Choice? {
-        if (key == null) return null
-        return choices.firstOrNull { !it.isImport && storeKey(it) == key }
+    /**
+     * The choice in [choices] matching [key] (store key, file name, or title) or [title],
+     * or null if there is none, such as after an import was deleted.
+     */
+    private fun choiceFor(choices: List<Choice>, key: String?, title: String? = null): Choice? {
+        if (key != null) {
+            val byStoreKey = choices.firstOrNull { !it.isImport && storeKey(it) == key }
+            if (byStoreKey != null) return byStoreKey
+
+            val byFileName = choices.firstOrNull { !it.isImport && (it.fileName == key || it.fileName?.substringBeforeLast('.') == key) }
+            if (byFileName != null) return byFileName
+
+            val byTitle = choices.firstOrNull { !it.isImport && it.title.equals(key, ignoreCase = true) }
+            if (byTitle != null) return byTitle
+        }
+
+        if (title != null) {
+            val byTitle = choices.firstOrNull { !it.isImport && it.title.equals(title, ignoreCase = true) }
+            if (byTitle != null) return byTitle
+        }
+
+        return null
     }
 
-    /** Remember what was applied, so the screen opens with it selected next time. The titles are read by Termux. */
+    /** Remember what was applied in preferences and ~/.termux/style.properties, so Termux and this screen can read it. */
     private fun saveApplied() {
         stylePrefs().edit()
             .putString(PREF_COLOR, storeKey(appliedColor))
@@ -462,13 +554,36 @@ class TermuxStyleActivity : AppCompatActivity() {
             .putString(PREF_COLOR_TITLE, appliedColor.title)
             .putString(PREF_FONT_TITLE, appliedFont.title)
             .apply()
+        saveStyleProperties()
     }
 
     /** Write the color scheme and the font that changed, Termux reloads each one when it is written. */
     private fun applySelection() {
-        if (selectedColor != appliedColor && copyFile(selectedColor, true)) appliedColor = selectedColor
-        if (selectedFont != appliedFont && copyFile(selectedFont, false)) appliedFont = selectedFont
+        val colorChanged = selectedColor != appliedColor
+        val fontChanged = selectedFont != appliedFont
+        if (!colorChanged && !fontChanged) return
+
+        val previousColor = appliedColor
+        val previousFont = appliedFont
+
+        if (colorChanged) appliedColor = selectedColor
+        if (fontChanged) appliedFont = selectedFont
         saveApplied()
+
+        var colorFailed = false
+        var fontFailed = false
+        if (colorChanged && !copyFile(appliedColor, true)) {
+            appliedColor = previousColor
+            colorFailed = true
+        }
+        if (fontChanged && !copyFile(appliedFont, false)) {
+            appliedFont = previousFont
+            fontFailed = true
+        }
+        if (colorFailed || fontFailed) {
+            saveApplied()
+        }
+
         updateApplyButton()
         applyFilters()
         if (appliedColor == selectedColor && appliedFont == selectedFont) {
@@ -501,14 +616,10 @@ class TermuxStyleActivity : AppCompatActivity() {
     private fun copyFile(choice: Choice, colors: Boolean): Boolean {
         val outputFile = if (colors) "colors.properties" else "font.ttf"
         try {
-            val context = createPackageContext("com.termux", Context.CONTEXT_IGNORE_SECURITY)
-            val homeDir = File(context.filesDir, "home")
-            val termuxDir = File(homeDir, ".termux")
-            if (!(termuxDir.isDirectory || termuxDir.mkdirs()))
-                throw RuntimeException("Cannot create termux dir=" + termuxDir.absolutePath)
+            val dir = termuxDir() ?: throw RuntimeException("Cannot access ~/.termux")
 
             // Use canonicalFile to follow a possible symlink:
-            val destinationFile = File(termuxDir, outputFile).canonicalFile
+            val destinationFile = File(dir, outputFile).canonicalFile
             // Fix for if the user has messed up with chmod:
             destinationFile.setWritable(true)
             destinationFile.parentFile?.setWritable(true)
@@ -516,16 +627,21 @@ class TermuxStyleActivity : AppCompatActivity() {
 
             val atomicFile = AtomicFile(destinationFile)
             val out = atomicFile.startWrite()
-            if (choice.fileName == null) {
-                if (colors) {
-                    out.write("# Using default color theme.".toByteArray(StandardCharsets.UTF_8))
+            try {
+                if (choice.fileName == null) {
+                    if (colors) {
+                        out.write("# Using default color theme.".toByteArray(StandardCharsets.UTF_8))
+                    } else {
+                        // An empty font file is the marker for the default font.
+                    }
                 } else {
-                    // An empty font file is the marker for the default font.
+                    openChoice(choice).use { it.copyTo(out) }
                 }
-            } else {
-                openChoice(choice).use { it.copyTo(out) }
+                atomicFile.finishWrite(out)
+            } catch (e: Exception) {
+                atomicFile.failWrite(out)
+                throw e
             }
-            atomicFile.finishWrite(out)
 
             // Note: Must match constant in Term#onCreate():
             val actionReload = "com.termux.app.reload_style"

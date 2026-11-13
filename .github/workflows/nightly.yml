@@ -1,0 +1,103 @@
+name: Nightly
+
+# Manual only. Builds a signed release APK from the current branch.
+# Requires these repository secrets (Settings > Secrets and variables > Actions):
+#   RELEASE_KEYSTORE_BASE64  base64 of the release .jks/.keystore file
+#   RELEASE_KEYSTORE_PASSWORD
+#   RELEASE_KEY_ALIAS
+#   RELEASE_KEY_PASSWORD
+# Use the same release key as termux-app: both apps share a user ID and must be signed with one key.
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Build and sign release APK
+        shell: bash {0}
+        env:
+          KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          exit_on_error() { echo "$1"; exit 1; }
+
+          for name in KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              exit_on_error "Secret for $name is not set. Add the RELEASE_* secrets in the repository settings."
+            fi
+          done
+
+          echo "Setting vars"
+          CURRENT_VERSION_NAME_REGEX='\s+versionName "([^"]+)"$'
+          CURRENT_VERSION_NAME="$(grep -m 1 -E "$CURRENT_VERSION_NAME_REGEX" ./app/build.gradle | sed -r "s/$CURRENT_VERSION_NAME_REGEX/\1/")"
+          RELEASE_VERSION_NAME="$CURRENT_VERSION_NAME+${GITHUB_SHA:0:7}" # The "+" keeps version precedence unchanged
+          if ! printf "%s" "$RELEASE_VERSION_NAME" | grep -qP '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$'; then
+            exit_on_error "The version '$RELEASE_VERSION_NAME' is not a valid semantic version."
+          fi
+
+          APK_DIR_PATH="./app/build/outputs/apk/release"
+          APK_VERSION_TAG="$RELEASE_VERSION_NAME-github-nightly"
+          echo "APK_DIR_PATH=$APK_DIR_PATH" >> "$GITHUB_ENV"
+          echo "APK_VERSION_TAG=$APK_VERSION_TAG" >> "$GITHUB_ENV"
+
+          echo "Building release APK for '$APK_VERSION_TAG'"
+          export TERMUX_STYLING_APP_BUILD__APP_VERSION_NAME="$RELEASE_VERSION_NAME" # Used by app/build.gradle
+          export TERMUX_STYLING_APP_BUILD__APK_VERSION_TAG="$APK_VERSION_TAG" # Used by app/build.gradle
+          if ! ./gradlew assembleRelease; then
+            exit_on_error "Release build failed for '$APK_VERSION_TAG'."
+          fi
+
+          # Keep the keystore outside the repository, and delete it when done.
+          KEYSTORE_FILE="$RUNNER_TEMP/release.keystore"
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$KEYSTORE_FILE" || exit_on_error "RELEASE_KEYSTORE_BASE64 is not valid base64."
+          if ! keytool -exportcert -alias "$KEY_ALIAS" -keystore "$KEYSTORE_FILE" -storepass:env KEYSTORE_PASSWORD -file "$RUNNER_TEMP/release-cert.der"; then
+            exit_on_error "Could not read key alias '$KEY_ALIAS' from the keystore. Check RELEASE_KEY_ALIAS and RELEASE_KEYSTORE_PASSWORD."
+          fi
+          EXPECTED_SHA="$(sha256sum "$RUNNER_TEMP/release-cert.der" | cut -d' ' -f1)"
+          APKSIGNER="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -n 1)apksigner"
+
+          shopt -s nullglob
+          apks=("$APK_DIR_PATH"/*.apk)
+          if [ ${#apks[@]} -eq 0 ]; then
+            exit_on_error "No release APK found in '$APK_DIR_PATH'."
+          fi
+
+          echo "Signing with the release key"
+          for apk in "${apks[@]}"; do
+            if ! "$APKSIGNER" sign --ks "$KEYSTORE_FILE" --ks-key-alias "$KEY_ALIAS" \
+                --ks-pass env:KEYSTORE_PASSWORD --key-pass env:KEY_PASSWORD \
+                --out "$apk.signed" "$apk"; then
+              exit_on_error "Signing failed for '$(basename "$apk")'."
+            fi
+            mv "$apk.signed" "$apk"
+
+            # Refuse to publish an APK that is not signed with the release key (for example the debug test key).
+            ACTUAL_SHA="$("$APKSIGNER" verify --print-certs "$apk" | awk -F': ' '/certificate SHA-256 digest/ {print $2; exit}')"
+            if [ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]; then
+              exit_on_error "'$(basename "$apk")' is not signed with the release key."
+            fi
+          done
+          rm -f "$KEYSTORE_FILE"
+
+          echo "Generating checksums-sha256.txt"
+          (cd "$APK_DIR_PATH" && sha256sum ./*.apk > checksums-sha256.txt) || exit_on_error "Generating checksums failed."
+
+      - name: Upload signed APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APK_VERSION_TAG }}
+          path: |
+            ${{ env.APK_DIR_PATH }}/*.apk
+            ${{ env.APK_DIR_PATH }}/checksums-sha256.txt

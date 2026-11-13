@@ -312,7 +312,7 @@ class TermuxStyleActivity : AppCompatActivity() {
         ioExecutor.execute {
             for (choice in choices) {
                 if (choice.fileName != null && !choice.isImport && choice.isColor) {
-                    val palette = loadPalette(choice)
+                    loadPalette(choice)
                     isDarkChoice(choice)
                 }
             }
@@ -479,7 +479,7 @@ class TermuxStyleActivity : AppCompatActivity() {
 
     /** Return cached typeface if available, or Typeface.MONOSPACE for default. Does not do file I/O. */
     private fun getCachedTypeface(choice: Choice): Typeface? {
-        val fileName = choice.fileName ?: return Typeface.MONOSPACE
+        if (choice.fileName == null) return Typeface.MONOSPACE
         val key = cacheKey(choice)
         return synchronized(typefaceCache) {
             typefaceCache.get(key)
@@ -508,9 +508,6 @@ class TermuxStyleActivity : AppCompatActivity() {
         }
         return typeface
     }
-
-    /** The typeface of a font, the system monospace for the default. Synchronously returns cached or loads. */
-    private fun typefaceFor(choice: Choice): Typeface = loadTypeface(choice)
 
     private fun updatePreview() {
         val targetColor = selectedColor
@@ -1028,14 +1025,12 @@ class TermuxStyleActivity : AppCompatActivity() {
 
                     val wasApplied = if (choice.isColor) appliedColor == choice else appliedFont == choice
                     if (wasApplied) {
-                        if (choice.isColor) {
-                            appliedColor = defaultColor()
-                            copyFile(defaultColor(), true)
-                        } else {
-                            appliedFont = defaultFont()
-                            copyFile(defaultFont(), false)
+                        // Only record the default as applied if Termux really received it.
+                        val fallback = if (choice.isColor) defaultColor() else defaultFont()
+                        if (copyFile(fallback, choice.isColor)) {
+                            if (choice.isColor) appliedColor = fallback else appliedFont = fallback
+                            saveApplied()
                         }
-                        saveApplied()
                     }
 
                     paletteCache.remove(cacheKey(choice))

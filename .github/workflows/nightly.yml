@@ -84,8 +84,12 @@ jobs:
             mv "$apk.signed" "$apk"
 
             # Refuse to publish an APK that is not signed with the release key (for example the debug test key).
-            ACTUAL_SHA="$("$APKSIGNER" verify --print-certs "$apk" | awk -F': ' '/certificate SHA-256 digest/ {print $2; exit}')"
+            VERIFY_OUTPUT="$("$APKSIGNER" verify --print-certs "$apk" 2>&1)" \
+              || exit_on_error "Verification failed for '$(basename "$apk")': $VERIFY_OUTPUT"
+            ACTUAL_SHA="$(printf '%s\n' "$VERIFY_OUTPUT" | awk -F': ' '/certificate SHA-256 digest/ {print $2; exit}' | tr -d '[:space:]' | tr 'A-F' 'a-f')"
             if [ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]; then
+              echo "Expected release key SHA-256: $EXPECTED_SHA"
+              echo "$VERIFY_OUTPUT"
               exit_on_error "'$(basename "$apk")' is not signed with the release key."
             fi
           done
